@@ -6,7 +6,7 @@ on:
   workflow_dispatch:      # Allows manual trigger anytime
     inputs:
       force_build:
-        description: 'Force build even if SHA matches latest release'
+        description: 'Force build even if sha or versions match'
         required: false
         type: boolean
         default: false
@@ -18,44 +18,82 @@ jobs:
   check-upstream:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
-      short_sha: ${{ steps.check.outputs.short_sha }}
+      has_builds: ${{ steps.check.outputs.has_builds }}
+      build_matrix: ${{ steps.check.outputs.build_matrix }}
     steps:
-      - name: Check latest upstream commit against current release
+      - name: Check upstream for new tags and commits
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ github.event.inputs.force_build }}
         run: |
-          # 1. Fetch upstream SHA
-          UPSTREAM_SHA=$(gh api repos/cboxdoerfer/fsearch/commits/master --jq .sha)
-          if [ -z "$UPSTREAM_SHA" ] || [ "$UPSTREAM_SHA" = "null" ]; then
-            echo "::error::Failed to fetch upstream SHA"
-            exit 1
+          TARGETS='[]'
+
+          # 1. Check upstream releases / tags
+          # 
+          UPSTREAM_TAG=$(gh api repos/cboxdoerfer/fsearch/releases/latest --jq .tag_name 2>/dev/null || echo "")
+          if [ -n "$UPSTREAM_TAG" ] && [ "$UPSTREAM_TAG" != "null" ]; then
+            # Check if this tag already exists as a release in YOUR repo
+            LOCAL_TAG_RELEASE=$(gh release view "$UPSTREAM_TAG" --json id -q .id 2>/dev/null || echo "")
+
+            if [ "$FORCE" = "true" ] || [ -z "$LOCAL_TAG_RELEASE" ]; then
+              echo "Found new upstream stable release: $UPSTREAM_TAG"
+              TARGETS=$(jq -c --arg tag "$UPSTREAM_TAG" '. += [{
+                "build_type": "tag",
+                "ref": $tag,
+                "release_tag": $tag,
+                "version_name": $tag,
+                "prerelease": false,
+                "title": ("FSearch " + $tag)
+              }]' <<< "$TARGETS")
+            else
+              echo "Stable release $UPSTREAM_TAG is already built and published."
+            fi
           fi
 
-          echo "Upstream SHA: $UPSTREAM_SHA"
-          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${UPSTREAM_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          # 2. Check upstream master branch (continuous)
+          # 
+          UPSTREAM_SHA=$(gh api repos/cboxdoerfer/fsearch/commits/master --jq .sha 2>/dev/null || echo "")
+          if [ -n "$UPSTREAM_SHA" ] && [ "$UPSTREAM_SHA" != "null" ]; then
+            RELEASE_SHA=$(gh release view continuous --json body -q .body 2>/dev/null \
+              | grep -oP '(?<=cboxdoerfer/fsearch/commit/)[0-9a-f]{40}' || echo "")
 
-          # 2. Extract previously built SHA from existing release (if any)
-          RELEASE_SHA=$(gh release view continuous --json body -q .body 2>/dev/null \
-            | grep -oP '(?<=cboxdoerfer/fsearch/commit/)[0-9a-f]{40}' || echo "")
-          echo "Current Release SHA: ${RELEASE_SHA:-none}"
+            if [ "$FORCE" = "true" ] || [ "$UPSTREAM_SHA" != "$RELEASE_SHA" ]; then
+              echo "Found new upstream continuous commit: $UPSTREAM_SHA"
+              SHORT_SHA="${UPSTREAM_SHA:0:7}"
+              TARGETS=$(jq -c --arg sha "$UPSTREAM_SHA" --arg ssha "$SHORT_SHA" '. += [{
+                "build_type": "continuous",
+                "ref": $sha,
+                "release_tag": "continuous",
+                "version_name": $ssha,
+                "prerelease": true,
+                "title": ("FSearch Continuous (" + $ssha + ")")
+              }]' <<< "$TARGETS")
+            else
+              echo "Continuous release is up-to-date with upstream master."
+            fi
+          fi
 
-          # 3. Determine whether to build
-          FORCE="${{ github.event.inputs.force_build }}"
-          if [ "$FORCE" = "true" ] || [ "$UPSTREAM_SHA" != "$RELEASE_SHA" ]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          # 3. Set outputs
+          # 
+          TARGET_COUNT=$(jq '. | length' <<< "$TARGETS")
+          if [ "$TARGET_COUNT" -gt 0 ]; then
+            echo "has_builds=true" >> "$GITHUB_OUTPUT"
+            echo "build_matrix=$TARGETS" >> "$GITHUB_OUTPUT"
+            echo "Scheduled builds: $TARGETS"
           else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "Release is up-to-date with upstream. Skipping build."
+            echo "has_builds=false" >> "$GITHUB_OUTPUT"
+            echo "No new releases or commits found. Skipping build."
           fi
 
   build-appimage:
     needs: check-upstream
-    if: needs.check-upstream.outputs.should_build == 'true'
+    if: needs.check-upstream.outputs.has_builds == 'true'
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.check-upstream.outputs.build_matrix) }}
 
     env:
       APPIMAGE_EXTRACT_AND_RUN: 1
@@ -65,7 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cboxdoerfer/fsearch
-          ref: ${{ needs.check-upstream.outputs.upstream_sha }}
+          ref: ${{ matrix.target.ref }}
           fetch-depth: 0
 
       - name: Install build dependencies
@@ -95,19 +133,25 @@ jobs:
         run: |
           DESKTOP_FILE="AppDir/usr/share/applications/io.github.cboxdoerfer.FSearch.desktop"
           ICON_FILE="AppDir/usr/share/icons/hicolor/scalable/apps/io.github.cboxdoerfer.FSearch.svg"
-          SHORT_SHA="${{ needs.check-upstream.outputs.short_sha }}"
-
-          # Safely extract owner and repo name (works for both schedule and workflow_dispatch)
+          
           REPO_OWNER="${GITHUB_REPOSITORY%/*}"
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          BUILD_TYPE="${{ matrix.target.build_type }}"
+          VERSION_NAME="${{ matrix.target.version_name }}"
 
-          # Set update information for both linuxdeploy and appimagetool
-          export UPDATE_INFORMATION="gh-releases-zsync|${REPO_OWNER}|${REPO_NAME}|continuous|FSearch-x86_64.AppImage.zsync"
+          # Continuous points to the 'continuous' tag; stable releases point to 'latest'
+          if [ "$BUILD_TYPE" = "continuous" ]; then
+            UPDATE_TAG="continuous"
+          else
+            UPDATE_TAG="latest"
+          fi
+
+          export UPDATE_INFORMATION="gh-releases-zsync|${REPO_OWNER}|${REPO_NAME}|${UPDATE_TAG}|FSearch-x86_64.AppImage.zsync"
           export LDAI_UPDATE_INFORMATION="$UPDATE_INFORMATION"
           export LDAI_OUTPUT="FSearch-x86_64.AppImage"
           export OUTPUT="FSearch-x86_64.AppImage"
 
-          # 1. Generate unversioned AppImage & zsync file
+          # 1. Package AppImage & create zsync
           linuxdeploy \
             --appdir AppDir \
             --desktop-file "$DESKTOP_FILE" \
@@ -115,20 +159,15 @@ jobs:
             --plugin gtk \
             --output appimage
 
-          # Verify zsync generation
-          if [ ! -f "FSearch-x86_64.AppImage.zsync" ]; then
-            echo "::error::Zsync file was not generated!"
-            exit 1
-          fi
-
-          # 2. Duplicate as commit-versioned binary
-          cp "FSearch-x86_64.AppImage" "FSearch-${SHORT_SHA}-x86_64.AppImage"
+          # 2. Duplicate as version-named binary for direct download
+          cp "FSearch-x86_64.AppImage" "FSearch-${VERSION_NAME}-x86_64.AppImage"
 
           # 3. Generate SHA256 checksums
           sha256sum "FSearch-x86_64.AppImage" > "FSearch-x86_64.AppImage.sha256"
-          sha256sum "FSearch-${SHORT_SHA}-x86_64.AppImage" > "FSearch-${SHORT_SHA}-x86_64.AppImage.sha256"
+          sha256sum "FSearch-${VERSION_NAME}-x86_64.AppImage" > "FSearch-${VERSION_NAME}-x86_64.AppImage.sha256"
 
-      - name: Clean previous SHA-versioned assets
+      - name: Clean previous SHA-versioned assets (Continuous only)
+        if: matrix.target.build_type == 'continuous'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -136,7 +175,7 @@ jobs:
           OLD_ASSETS=$(gh release view continuous --json assets -q '.assets[].name' 2>/dev/null || true)
           for asset in $OLD_ASSETS; do
             if [[ "$asset" =~ ^FSearch-[0-9a-f]{7,40}-x86_64\. ]]; then
-              echo "Removing previous asset: $asset"
+              echo "Removing previous continuous asset: $asset"
               gh release delete-asset continuous "$asset" -y || true
             fi
           done
@@ -144,23 +183,23 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: continuous
-          name: "FSearch Continuous (${{ needs.check-upstream.outputs.short_sha }})"
+          tag_name: ${{ matrix.target.release_tag }}
+          name: ${{ matrix.target.title }}
+          prerelease: ${{ matrix.target.prerelease }}
           body: |
-            Automated continuous AppImage build tracking upstream `cboxdoerfer/fsearch` master branch.
+            Automated AppImage build tracking upstream `cboxdoerfer/fsearch`.
 
-            - **Built Commit:** https://github.com/cboxdoerfer/fsearch/commit/${{ needs.check-upstream.outputs.upstream_sha }}
+            - **Upstream Reference:** https://github.com/cboxdoerfer/fsearch/tree/${{ matrix.target.ref }}
             - **Architecture:** Linux x86_64
 
             ### Direct Download Links
-            - [Latest AppImage (Static Link)](https://github.com/${{ github.repository }}/releases/download/continuous/FSearch-x86_64.AppImage)
-            - [SHA256 Checksum](https://github.com/${{ github.repository }}/releases/download/continuous/FSearch-x86_64.AppImage.sha256)
-          prerelease: true
+            - [Latest AppImage (Static Link)](https://github.com/${{ github.repository }}/releases/download/${{ matrix.target.release_tag }}/FSearch-x86_64.AppImage)
+            - [SHA256 Checksum](https://github.com/${{ github.repository }}/releases/download/${{ matrix.target.release_tag }}/FSearch-x86_64.AppImage.sha256)
           files: |
             FSearch-x86_64.AppImage
             FSearch-x86_64.AppImage.zsync
             FSearch-x86_64.AppImage.sha256
-            FSearch-${{ needs.check-upstream.outputs.short_sha }}-x86_64.AppImage
-            FSearch-${{ needs.check-upstream.outputs.short_sha }}-x86_64.AppImage.sha256
+            FSearch-${{ matrix.target.version_name }}-x86_64.AppImage
+            FSearch-${{ matrix.target.version_name }}-x86_64.AppImage.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
