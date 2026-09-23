@@ -1,85 +1,126 @@
-# FSearch Continuous AppImage
+# FSearch AppImage (Automated Builds)
 
 [![Build Script](https://img.shields.io/badge/build-script-blue)](https://github.com/SanmayJoshi/fsearch-appimage/actions/workflows/build.yml)
-[![Continuous Release](https://img.shields.io/github/v/release/SanmayJoshi/fsearch-appimage?include_prereleases&label=continuous%20build&color=blue)](https://github.com/SanmayJoshi/fsearch-appimage/releases/tag/continuous)
+[![Continuous Build](https://img.shields.io/github/v/release/SanmayJoshi/fsearch-appimage?include_prereleases&label=continuous%20build&color=blue)](https://github.com/SanmayJoshi/fsearch-appimage/releases/tag/continuous)
+[![GitHub Release (Latest by date)](https://img.shields.io/github/v/release/SanmayJoshi/fsearch-appimage?label=Latest%20Stable)](https://github.com/SanmayJoshi/fsearch-appimage/releases/latest)
+[![Upstream Repository](https://img.shields.io/badge/Upstream-cboxdoerfer%2Ffsearch-informational)](https://github.com/cboxdoerfer/fsearch)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/License-GPL%202.0%2B-green.svg)](https://github.com/cboxdoerfer/fsearch/blob/master/COPYING)
 
-This repository provides **automated continuous AppImage builds** tracking the latest upstream [`master`](https://github.com/cboxdoerfer/fsearch) branch of [**FSearch**](https://github.com/cboxdoerfer/fsearch), a fast file search utility for Linux inspired by Everything Search Engine.
+Automated, dependency-bundled AppImage packaging for **[FSearch](https://github.com/cboxdoerfer/fsearch)**, the fast file search utility for Linux.
+
+This repository tracks upstream releases and development branches, packaging them into standalone, portable Linux executables featuring embedded delta update support.
 
 ---
 
-## Features
+## Release Channels
 
-- **Automated Upstream Sync:** A scheduled GitHub Actions workflow checks upstream daily. If new commits are detected, a fresh AppImage is built and published automatically.
-- **Static Direct Download Link:** Provides an unversioned `FSearch-x86_64.AppImage` link that always points to the latest continuous build.
-- **Delta-Update Ready:** Bundled with embedded `.zsync` metadata for fast, bandwidth-friendly differential updates via [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate).
-- **Integrity Verified:** Every release includes SHA-256 checksum files for verification.
+Builds are monitored and released under two distinct tracks:
 
----
+| Channel | Source Reference | Release Type | Target Audience | Delta Update Track |
+| :--- | :--- | :--- | :--- | :--- |
+| **Stable** | Official upstream git tags (`releases/latest`) | **Full Release** | General daily use; maximum stability | Tracks official releases |
+| **Continuous** | Latest commit on upstream `master` | **Pre-release** | Testers; access to cutting-edge features | Tracks daily development builds |
 
-## Download
+### Direct Downloads
 
-### Latest Build (Static Links)
-
-| Artifact | Download Link | Description |
-| :--- | :--- | :--- |
-| **AppImage** | [FSearch-x86_64.AppImage](https://github.com/SanmayJoshi/fsearch-appimage/releases/download/continuous/FSearch-x86_64.AppImage) | Always points to latest master build |
-| **Checksum** | [FSearch-x86_64.AppImage.sha256](https://github.com/SanmayJoshi/fsearch-appimage/releases/download/continuous/FSearch-x86_64.AppImage.sha256) | SHA-256 verification hash |
-| **Zsync File** | [FSearch-x86_64.AppImage.zsync](https://github.com/SanmayJoshi/fsearch-appimage/releases/download/continuous/FSearch-x86_64.AppImage.zsync) | Metadata for differential updates |
-
-*(Commit-specific builds e.g. `FSearch-<short_sha>-x86_64.AppImage` are also available on the [Continuous Releases](https://github.com/SanmayJoshi/fsearch-appimage/releases/tag/continuous) page).*
+- **[Latest Stable Release](https://github.com/SanmayJoshi/fsearch-appimage/releases/latest)**: Best for most users.
+- **[Continuous Build](https://github.com/SanmayJoshi/fsearch-appimage/releases/tag/continuous)**: Automatically refreshed when upstream commits land on `master`.
 
 ---
 
-## Quick Start
+## Installation and Execution
 
-### 1. Download and Run
+AppImages run out-of-the-box without root permissions or system installation.
+
+### 1. Download
+Download the `.AppImage` binary from the [Releases](https://github.com/SanmayJoshi/fsearch-appimage/releases) page.
+
+### 2. Mark Executable
+Open your terminal in the download folder and run:
+```bash
+chmod +x FSearch-*.AppImage
+```
+*(Or right-click the file in your desktop file manager -> Properties -> Permissions -> Allow executing file as program).*
+
+### 3. Run
+```bash
+./FSearch-*.AppImage
+```
+*Or simply double click the file.*
+
+> [!NOTE]
+> **FUSE Requirement (Ubuntu 22.04+, Debian 12+, Fedora):**  
+> Modern Linux distributions may require `libfuse2` to mount AppImages. If the file does not launch, install it via:
+> ```bash
+> # Debian / Ubuntu / Mint
+> sudo apt install libfuse2
+>
+> # Fedora / RHEL
+> sudo dnf install fuse-libs
+>
+> # Arch Linux / Manjaro
+> sudo pacman -S fuse2
+> ```
+
+---
+
+## Delta Updates (Zsync)
+
+Every release includes an embedded update signature pointing to a `.zsync` control file. This allows updating to newer releases by downloading **only changed byte-ranges** (often just 2–5 MB) rather than re-downloading the entire AppImage.
+
+### Using AppImageUpdate
+You can update in-place using the official CLI or GUI tool:
 
 ```bash
-# Download latest AppImage
-wget https://github.com/SanmayJoshi/fsearch-appimage/releases/download/continuous/FSearch-x86_64.AppImage
-
-# Make executable and launch
-chmod +x FSearch-x86_64.AppImage
-./FSearch-x86_64.AppImage
+# Update an existing binary in-place
+appimageupdate ./FSearch-x86_64.AppImage
 ```
 
-### 2. Verify Checksum
+- If you downloaded a **Stable** release, your updater tracks the `latest` stable channel.
+- If you downloaded a **Continuous** release, your updater tracks the continuous `master` channel.
 
+Alternatively, integration managers like [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or [Gear Lever](https://github.com/mijorus/gearlever) can detect and apply these updates automatically.
+
+---
+
+## Checksum Verification
+
+Every release includes matching `.sha256` files to verify binary integrity.
+
+To verify a downloaded AppImage:
 ```bash
-wget https://github.com/SanmayJoshi/fsearch-appimage/releases/download/continuous/FSearch-x86_64.AppImage.sha256
 sha256sum -c FSearch-x86_64.AppImage.sha256
 ```
-
-### 3. Updating
-
-Because this AppImage includes embedded zsync metadata, you do not need to download the full binary again for updates. Use [appimageupdatetool](https://github.com/AppImageCommunity/AppImageUpdate):
-
-```bash
-appimageupdatetool FSearch-x86_64.AppImage
+Expected output:
+```text
+FSearch-x86_64.AppImage: OK
 ```
 
 ---
 
-## How It Works
+## How the Automation Works
 
-1. **Check:** A lightweight GitHub Actions job queries the GitHub API for the latest commit on `cboxdoerfer/fsearch:master`.
-2. **Comparison:** It compares the commit SHA with the currently deployed continuous release body. If identical, the workflow terminates within seconds.
-3. **Build:** If a new commit is detected (or triggered manually via `workflow_dispatch`), the runner builds FSearch from source with Meson/Ninja, bundles GTK runtime dependencies with `linuxdeploy`, generates update information, and updates the `continuous` release tag.
+The workflow runs on a daily schedule (`00:00 UTC`) via GitHub Actions:
 
----
+```text
+[Cron: 00:00 UTC]
+        │
+        ├─► Check Upstream Releases ──► New tag found? ──► Build Tag & publish as Stable Release
+        │
+        └─► Check Upstream Master   ──► New SHA found? ──► Build AppDir & update Continuous Pre-release
+```
 
-## AI / LLM Disclaimer
-
-The CI/CD workflow automation, packaging recipes, and repository documentation were drafted and maintained with the assistance of Artificial Intelligence / Large Language Models (LLMs).
-
-- **Core Application:** The underlying application source code is authored and maintained exclusively by Christian Boxdörfer and upstream contributors.
-- **As-Is Basis:** While the pipeline is reviewed to follow AppImage and Linux packaging best practices, the scripts and configurations are provided "as is", without warranty of any kind.
+1. **Upstream Tag Detection:** Checks the GitHub API for the latest official tag on `cboxdoerfer/fsearch`. If there isn't a published release for that tag, a build is queued.
+2. **Commit Tracking:** Compares the upstream `master` branch head SHA with the SHA recorded in the current `continuous` release body. If upstream has moved ahead, a new continuous build is queued.
+3. **Packaging:** Bundles FSearch with GTK3 dependencies using `linuxdeploy` and `linuxdeploy-plugin-gtk`.
+4. **Housekeeping:** Previous commit-specific binaries in the `continuous` release tag are automatically purged to prevent indefinite artifact storage accumulation.
 
 ---
 
 ## Disclaimer & Credits
 
-- This repository is an **independent, automated community packaging effort** and is not officially affiliated with or endorsed by Christian Boxdörfer.
+- **FSearch** is developed and maintained by **[Christian Boxdörfer (cboxdoerfer)](https://github.com/cboxdoerfer)** and contributors under the [GNU General Public License v2.0](https://github.com/cboxdoerfer/fsearch/blob/master/COPYING).
 - All code rights, icons, and trademarks belong to the [FSearch](https://github.com/cboxdoerfer/fsearch) project under the GPL-2.0-or-later license.
-- For application bugs or feature requests, visit the [upstream issue tracker](https://github.com/cboxdoerfer/fsearch/issues). For packaging or launch issues specific to this AppImage, open an issue in this repository.
+- This repository is an **independent, automated build service** providing community AppImage packaging. It is not officially affiliated with or endorsed by upstream.
+- For issues regarding FSearch itself, report them at [cboxdoerfer/fsearch/issues](https://github.com/cboxdoerfer/fsearch/issues).
+- For packaging-related problems (e.g., missing runtime libraries, update failures, workflow bugs), open an issue in this repository.
