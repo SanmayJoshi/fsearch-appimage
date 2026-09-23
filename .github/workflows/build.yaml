@@ -75,7 +75,7 @@ jobs:
             build-essential git meson ninja-build itstool libtool \
             pkg-config intltool libicu-dev libpcre2-dev libglib2.0-dev \
             libgtk-3-dev libxml2-utils librsvg2-dev librsvg2-common \
-            libgirepository1.0-dev file wget libfuse2
+            libgirepository1.0-dev file wget libfuse2 zsync
 
       - name: Download linuxdeploy tools
         run: |
@@ -92,16 +92,22 @@ jobs:
           DESTDIR="$PWD/AppDir" ninja -C builddir install
 
       - name: Bundle AppImage
-        env:
-          # Delta updates will resolve to the static unversioned zsync file
-          LDA_UPDATE_INFORMATION: "gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|continuous|FSearch-x86_64.AppImage.zsync"
         run: |
           DESKTOP_FILE="AppDir/usr/share/applications/io.github.cboxdoerfer.FSearch.desktop"
           ICON_FILE="AppDir/usr/share/icons/hicolor/scalable/apps/io.github.cboxdoerfer.FSearch.svg"
           SHORT_SHA="${{ needs.check-upstream.outputs.short_sha }}"
 
-          # 1. Generate unversioned AppImage (also outputs FSearch-x86_64.AppImage.zsync)
+          # Safely extract owner and repo name (works for both schedule and workflow_dispatch)
+          REPO_OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+
+          # Set update information for both linuxdeploy and appimagetool
+          export UPDATE_INFORMATION="gh-releases-zsync|${REPO_OWNER}|${REPO_NAME}|continuous|FSearch-x86_64.AppImage.zsync"
+          export LDAI_UPDATE_INFORMATION="$UPDATE_INFORMATION"
+          export LDAI_OUTPUT="FSearch-x86_64.AppImage"
           export OUTPUT="FSearch-x86_64.AppImage"
+
+          # 1. Generate unversioned AppImage & zsync file
           linuxdeploy \
             --appdir AppDir \
             --desktop-file "$DESKTOP_FILE" \
@@ -109,10 +115,16 @@ jobs:
             --plugin gtk \
             --output appimage
 
-          # 2. Duplicate as commit-versioned binary for reference/archival
-          cp "$OUTPUT" "FSearch-${SHORT_SHA}-x86_64.AppImage"
+          # Verify zsync generation
+          if [ ! -f "FSearch-x86_64.AppImage.zsync" ]; then
+            echo "::error::Zsync file was not generated!"
+            exit 1
+          fi
 
-          # 3. Generate SHA256 checksums for both files
+          # 2. Duplicate as commit-versioned binary
+          cp "FSearch-x86_64.AppImage" "FSearch-${SHORT_SHA}-x86_64.AppImage"
+
+          # 3. Generate SHA256 checksums
           sha256sum "FSearch-x86_64.AppImage" > "FSearch-x86_64.AppImage.sha256"
           sha256sum "FSearch-${SHORT_SHA}-x86_64.AppImage" > "FSearch-${SHORT_SHA}-x86_64.AppImage.sha256"
 
@@ -152,4 +164,3 @@ jobs:
             FSearch-${{ needs.check-upstream.outputs.short_sha }}-x86_64.AppImage.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
