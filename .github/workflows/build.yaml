@@ -1,0 +1,155 @@
+name: Build and Release AppImage
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Check upstream daily at 00:00 UTC
+  workflow_dispatch:      # Allows manual trigger anytime
+    inputs:
+      force_build:
+        description: 'Force build even if SHA matches latest release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+      short_sha: ${{ steps.check.outputs.short_sha }}
+    steps:
+      - name: Check latest upstream commit against current release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Fetch upstream SHA
+          UPSTREAM_SHA=$(gh api repos/cboxdoerfer/fsearch/commits/master --jq .sha)
+          if [ -z "$UPSTREAM_SHA" ] || [ "$UPSTREAM_SHA" = "null" ]; then
+            echo "::error::Failed to fetch upstream SHA"
+            exit 1
+          fi
+
+          echo "Upstream SHA: $UPSTREAM_SHA"
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${UPSTREAM_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+          # 2. Extract previously built SHA from existing release (if any)
+          RELEASE_SHA=$(gh release view continuous --json body -q .body 2>/dev/null \
+            | grep -oP '(?<=cboxdoerfer/fsearch/commit/)[0-9a-f]{40}' || echo "")
+          echo "Current Release SHA: ${RELEASE_SHA:-none}"
+
+          # 3. Determine whether to build
+          FORCE="${{ github.event.inputs.force_build }}"
+          if [ "$FORCE" = "true" ] || [ "$UPSTREAM_SHA" != "$RELEASE_SHA" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Release is up-to-date with upstream. Skipping build."
+          fi
+
+  build-appimage:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.should_build == 'true'
+    runs-on: ubuntu-22.04
+
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1
+
+    steps:
+      - name: Checkout upstream FSearch
+        uses: actions/checkout@v4
+        with:
+          repository: cboxdoerfer/fsearch
+          ref: ${{ needs.check-upstream.outputs.upstream_sha }}
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git meson ninja-build itstool libtool \
+            pkg-config intltool libicu-dev libpcre2-dev libglib2.0-dev \
+            libgtk-3-dev libxml2-utils librsvg2-dev librsvg2-common \
+            libgirepository1.0-dev file wget libfuse2
+
+      - name: Download linuxdeploy tools
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O /usr/local/bin/linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage -O /usr/local/bin/linuxdeploy-plugin-appimage
+          wget -q https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh -O /usr/local/bin/linuxdeploy-plugin-gtk
+
+          chmod +x /usr/local/bin/linuxdeploy /usr/local/bin/linuxdeploy-plugin-appimage /usr/local/bin/linuxdeploy-plugin-gtk
+
+      - name: Build and stage FSearch
+        run: |
+          meson setup builddir --prefix=/usr -Dbuildtype=release
+          ninja -C builddir
+          DESTDIR="$PWD/AppDir" ninja -C builddir install
+
+      - name: Bundle AppImage
+        env:
+          # Delta updates will resolve to the static unversioned zsync file
+          LDA_UPDATE_INFORMATION: "gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|continuous|FSearch-x86_64.AppImage.zsync"
+        run: |
+          DESKTOP_FILE="AppDir/usr/share/applications/io.github.cboxdoerfer.FSearch.desktop"
+          ICON_FILE="AppDir/usr/share/icons/hicolor/scalable/apps/io.github.cboxdoerfer.FSearch.svg"
+          SHORT_SHA="${{ needs.check-upstream.outputs.short_sha }}"
+
+          # 1. Generate unversioned AppImage (also outputs FSearch-x86_64.AppImage.zsync)
+          export OUTPUT="FSearch-x86_64.AppImage"
+          linuxdeploy \
+            --appdir AppDir \
+            --desktop-file "$DESKTOP_FILE" \
+            --icon-file "$ICON_FILE" \
+            --plugin gtk \
+            --output appimage
+
+          # 2. Duplicate as commit-versioned binary for reference/archival
+          cp "$OUTPUT" "FSearch-${SHORT_SHA}-x86_64.AppImage"
+
+          # 3. Generate SHA256 checksums for both files
+          sha256sum "FSearch-x86_64.AppImage" > "FSearch-x86_64.AppImage.sha256"
+          sha256sum "FSearch-${SHORT_SHA}-x86_64.AppImage" > "FSearch-${SHORT_SHA}-x86_64.AppImage.sha256"
+
+      - name: Clean previous SHA-versioned assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Remove prior commit-specific assets from the continuous release to prevent indefinite storage accumulation
+          OLD_ASSETS=$(gh release view continuous --json assets -q '.assets[].name' 2>/dev/null || true)
+          for asset in $OLD_ASSETS; do
+            if [[ "$asset" =~ ^FSearch-[0-9a-f]{7,40}-x86_64\. ]]; then
+              echo "Removing previous asset: $asset"
+              gh release delete-asset continuous "$asset" -y || true
+            fi
+          done
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: continuous
+          name: "FSearch Continuous (${{ needs.check-upstream.outputs.short_sha }})"
+          body: |
+            Automated continuous AppImage build tracking upstream `cboxdoerfer/fsearch` master branch.
+
+            - **Built Commit:** https://github.com/cboxdoerfer/fsearch/commit/${{ needs.check-upstream.outputs.upstream_sha }}
+            - **Architecture:** Linux x86_64
+
+            ### Direct Download Links
+            - [Latest AppImage (Static Link)](https://github.com/${{ github.repository }}/releases/download/continuous/FSearch-x86_64.AppImage)
+            - [SHA256 Checksum](https://github.com/${{ github.repository }}/releases/download/continuous/FSearch-x86_64.AppImage.sha256)
+          prerelease: true
+          files: |
+            FSearch-x86_64.AppImage
+            FSearch-x86_64.AppImage.zsync
+            FSearch-x86_64.AppImage.sha256
+            FSearch-${{ needs.check-upstream.outputs.short_sha }}-x86_64.AppImage
+            FSearch-${{ needs.check-upstream.outputs.short_sha }}-x86_64.AppImage.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
