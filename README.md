@@ -117,6 +117,15 @@ The workflow runs on a daily schedule (`00:00 UTC`) via GitHub Actions:
 
 ---
 
+## LLM Disclaimer
+
+The CI/CD workflow automation, packaging recipes, and repository documentation were drafted and maintained with the assistance of Large Language Models (LLMs).
+
+- **Core Application:** The underlying application source code is authored and maintained exclusively by Christian Boxdörfer and upstream contributors.
+- **As-Is Basis:** While the pipeline is reviewed to follow AppImage and Linux packaging best practices, the scripts and configurations are provided "as is", without warranty of any kind.
+
+---
+
 ## Disclaimer & Credits
 
 - **FSearch** is developed and maintained by **[Christian Boxdörfer (cboxdoerfer)](https://github.com/cboxdoerfer)** and contributors under the [GNU General Public License v2.0](https://github.com/cboxdoerfer/fsearch/blob/master/COPYING).
@@ -124,3 +133,4 @@ The workflow runs on a daily schedule (`00:00 UTC`) via GitHub Actions:
 - This repository is an **independent, automated build service** providing community AppImage packaging. It is not officially affiliated with or endorsed by upstream.
 - For issues regarding FSearch itself, report them at [cboxdoerfer/fsearch/issues](https://github.com/cboxdoerfer/fsearch/issues).
 - For packaging-related problems (e.g., missing runtime libraries, update failures, workflow bugs), open an issue in this repository.
+- **No Warranty:** The AppImages and automated packaging scripts in this repository are provided on an **"AS IS" basis, without warranty of any kind**, express or implied. Use them at your own risk. The maintainer assumes no liability for any damages, data loss, or system issues resulting from downloading, executing, or updating these binaries.
