@@ -1,6 +1,6 @@
 # FSearch Continuous AppImage
 
-[![Build and Release AppImage](https://github.com/SanmayJoshi/fsearch-appimage/actions/workflows/build.yml/badge.svg)](https://github.com/SanmayJoshi/fsearch-appimage/actions/workflows/build.yml)
+[![Build Script](https://img.shields.io/badge/build-script-blue)](https://github.com/SanmayJoshi/fsearch-appimage/actions/workflows/build.yml)
 [![Continuous Release](https://img.shields.io/github/v/release/SanmayJoshi/fsearch-appimage?include_prereleases&label=continuous%20build&color=blue)](https://github.com/SanmayJoshi/fsearch-appimage/releases/tag/continuous)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/License-GPL%202.0%2B-green.svg)](https://github.com/cboxdoerfer/fsearch/blob/master/COPYING)
 
