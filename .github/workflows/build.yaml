@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# Ensure all gh CLI commands target your repository by default
+env:
+  GH_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   check-upstream:
     runs-on: ubuntu-latest
@@ -24,8 +29,7 @@ jobs:
       - name: Check upstream for new tags and commits
         id: check
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE: ${{ github.event.inputs.force_build }}
+          FORCE: ${{ inputs.force_build || 'false' }}
         run: |
           TARGETS='[]'
 
@@ -55,11 +59,12 @@ jobs:
           # 
           UPSTREAM_SHA=$(gh api repos/cboxdoerfer/fsearch/commits/master --jq .sha 2>/dev/null || echo "")
           if [ -n "$UPSTREAM_SHA" ] && [ "$UPSTREAM_SHA" != "null" ]; then
+            # Matches both 'commit/' and 'tree/' URLs to remain backward-compatible
             RELEASE_SHA=$(gh release view continuous --json body -q .body 2>/dev/null \
-              | grep -oP '(?<=cboxdoerfer/fsearch/commit/)[0-9a-f]{40}' || echo "")
+              | grep -oP '(?<=cboxdoerfer/fsearch/(commit|tree)/)[0-9a-f]{40}' | head -n 1 || echo "")
 
             if [ "$FORCE" = "true" ] || [ "$UPSTREAM_SHA" != "$RELEASE_SHA" ]; then
-              echo "Found new upstream continuous commit: $UPSTREAM_SHA"
+              echo "Found new upstream continuous commit: $UPSTREAM_SHA (previous: ${RELEASE_SHA:-none})"
               SHORT_SHA="${UPSTREAM_SHA:0:7}"
               TARGETS=$(jq -c --arg sha "$UPSTREAM_SHA" --arg ssha "$SHORT_SHA" '. += [{
                 "build_type": "continuous",
@@ -70,7 +75,7 @@ jobs:
                 "title": ("FSearch Continuous (" + $ssha + ")")
               }]' <<< "$TARGETS")
             else
-              echo "Continuous release is up-to-date with upstream master."
+              echo "Continuous release is up-to-date with upstream master ($UPSTREAM_SHA)."
             fi
           fi
 
@@ -83,6 +88,7 @@ jobs:
             echo "Scheduled builds: $TARGETS"
           else
             echo "has_builds=false" >> "$GITHUB_OUTPUT"
+            echo "build_matrix=[]" >> "$GITHUB_OUTPUT"
             echo "No new releases or commits found. Skipping build."
           fi
 
@@ -174,8 +180,6 @@ jobs:
 
       - name: Clean previous SHA-versioned assets (Continuous only)
         if: matrix.target.build_type == 'continuous'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Remove prior commit-specific assets from the continuous release to prevent indefinite storage accumulation
           OLD_ASSETS=$(gh release view continuous --json assets -q '.assets[].name' 2>/dev/null || true)
@@ -207,5 +211,3 @@ jobs:
             FSearch-x86_64.AppImage.sha256
             FSearch-${{ matrix.target.version_name }}-x86_64.AppImage
             FSearch-${{ matrix.target.version_name }}-x86_64.AppImage.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
