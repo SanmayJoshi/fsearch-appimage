@@ -156,13 +156,19 @@ jobs:
             --appdir AppDir \
             --desktop-file "$DESKTOP_FILE" \
             --icon-file "$ICON_FILE" \
-            --plugin gtk \
-            --output appimage
+            --plugin gtk
 
-          # 2. Duplicate as version-named binary for direct download
+          # 2. Prune system, hardware, and display server libraries (Safety check)
+          EXCLUDE_REGEX='/(libc\.so|ld-linux|libdl\.so|libm\.so|libpthread\.so|librt\.so|libresolv\.so|libutil\.so|libnss_|libGL\.so|libEGL\.so|libGLX\.so|libGLdispatch\.so|libdrm\.so|libgbm\.so|libvulkan\.so|libX11\.so|libxcb\.so|libXau\.so|libXdmcp\.so|libwayland-)[^/]*$'
+          find AppDir/usr/lib -regextype posix-extended -regex ".*${EXCLUDE_REGEX}" -delete
+
+          # 3. Create the final AppImage
+          linuxdeploy --appdir AppDir --output appimage
+
+          # 4. Duplicate as version-named binary for direct download
           cp "FSearch-x86_64.AppImage" "FSearch-${VERSION_NAME}-x86_64.AppImage"
 
-          # 3. Generate SHA256 checksums
+          # 5. Generate SHA256 checksums
           sha256sum "FSearch-x86_64.AppImage" > "FSearch-x86_64.AppImage.sha256"
           sha256sum "FSearch-${VERSION_NAME}-x86_64.AppImage" > "FSearch-${VERSION_NAME}-x86_64.AppImage.sha256"
 
