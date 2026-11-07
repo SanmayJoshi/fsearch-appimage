@@ -6,9 +6,11 @@
 [![Upstream Repository](https://img.shields.io/badge/Upstream-cboxdoerfer%2Ffsearch-informational)](https://github.com/cboxdoerfer/fsearch)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/License-GPL%202.0%2B-green.svg)](https://github.com/cboxdoerfer/fsearch/blob/master/COPYING)
 
-Automated, dependency-bundled AppImage packaging for **[FSearch](https://github.com/cboxdoerfer/fsearch)**, the fast file search utility for Linux.
+Automated, dependency-bundled AppImage packaging for **FSearch**, the fast file search utility for Linux.
 
 This repository tracks upstream releases and development branches, packaging them into standalone, portable Linux executables featuring embedded delta update support.
+
+[FSearch](https://github.com/cboxdoerfer/fsearch) · [FSearch on Softorage](https://softorage.com/software/fsearch/)
 
 ---
 
