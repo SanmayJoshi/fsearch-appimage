@@ -46,6 +46,7 @@ jobs:
                 "build_type": "tag",
                 "ref": $tag,
                 "release_tag": $tag,
+                "latest_pointer": "latest/download",
                 "version_name": $tag,
                 "prerelease": false,
                 "title": ("FSearch " + $tag)
@@ -70,6 +71,7 @@ jobs:
                 "build_type": "continuous",
                 "ref": $sha,
                 "release_tag": "continuous",
+                "latest_pointer": "download/continuous",
                 "version_name": $ssha,
                 "prerelease": true,
                 "title": ("FSearch Continuous (" + $ssha + ")")
@@ -203,7 +205,7 @@ jobs:
             - **Architecture:** Linux x86_64
 
             ### Direct Download Links
-            - [Latest AppImage (Static Link)](https://github.com/${{ github.repository }}/releases/download/${{ matrix.target.release_tag }}/FSearch-x86_64.AppImage)
+            - [Latest AppImage (Static Link)](https://github.com/${{ github.repository }}/releases/${{ matrix.target.latest_pointer }}/FSearch-x86_64.AppImage)
             - [SHA256 Checksum](https://github.com/${{ github.repository }}/releases/download/${{ matrix.target.release_tag }}/FSearch-x86_64.AppImage.sha256)
           files: |
             FSearch-x86_64.AppImage
